@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S.T.A.N.D. | AI Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            color: #e2e8f0;
+        }
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 1rem;
+        }
+        .neon-text {
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+        .active-dot {
+            height: 10px;
+            width: 10px;
+            background-color: #22c55e;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #22c55e;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="h-screen overflow-hidden flex flex-col p-6">
+
+    <!-- Header -->
+    <header class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold tracking-wider text-white neon-text">S.T.A.N.D.</h1>
+            <p class="text-slate-400 text-sm">Real-time Human Posture Analytics</p>
+        </div>
+        <div class="flex items-center glass-panel px-4 py-2">
+            <span class="active-dot"></span>
+            <span class="text-sm font-medium text-slate-300">SYSTEM ONLINE</span>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-grow">
+        
+        <!-- Counter Card -->
+        <div class="glass-panel p-8 flex flex-col justify-center items-center relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50"></div>
+            
+            <h2 class="text-slate-400 uppercase tracking-widest text-sm mb-4">Live Standing Count</h2>
+            <div id="count-display" class="text-9xl font-bold text-white mb-4 transition-all duration-300">0</div>
+            
+            <div class="flex space-x-2 mt-4">
+                <span id="detection-pill" class="px-3 py-1 rounded-full text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                    Waiting for data...
+                </span>
+            </div>
+        </div>
+
+        <!-- Chart Card -->
+        <div class="glass-panel p-6 flex flex-col">
+            <h2 class="text-slate-400 uppercase tracking-widest text-sm mb-6">Activity Timeline (60s)</h2>
+            <div class="flex-grow relative w-full h-full">
+                <canvas id="activityChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-8 text-center text-slate-600 text-xs">
+        System ID: LOCAL-01 • v2.0.0
+    </footer>
+
+    <script>
+        // --- WebSocket Logic ---
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+        const ws = new WebSocket(wsUrl);
+
+        const countEl = document.getElementById('count-display');
+        const pillEl = document.getElementById('detection-pill');
+
+        // --- Chart Logic ---
+        const ctx = document.getElementById('activityChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(60).fill(''), // 60 seconds
+                datasets: [{
+                    label: 'Standing Persons',
+                    data: Array(60).fill(0),
+                    borderColor: '#38bdf8', // Sky 400
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                        ticks: { color: '#94a3b8', stepSize: 1 }
+                    },
+                    x: { display: false }
+                },
+                animation: false
+            }
+        });
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const count = data.standing_count || 0;
+            const ids = data.ids || [];
+
+            // Update Count
+            countEl.innerText = count;
+            countEl.style.textShadow = count > 0 ? "0 0 30px rgba(56, 189, 248, 0.8)" : "none";
+
+            // Update Pill
+            if (count > 0) {
+                pillEl.innerText = `IDs: ${ids.join(', ')}`;
+                pillEl.className = "px-3 py-1 rounded-full text-xs bg-green-500/10 text-green-400 border border-green-500/20";
+            } else {
+                pillEl.innerText = "No activity detected";
+                pillEl.className = "px-3 py-1 rounded-full text-xs bg-slate-500/10 text-slate-400 border border-slate-500/20";
+            }
+
+            // Update Chart
+            const currentData = chart.data.datasets[0].data;
+            currentData.shift(); // Remove oldest
+            currentData.push(count); // Add new
+            chart.update();
+        };
+
+        ws.onopen = () => {
+             console.log("Connected to System");
+             pillEl.innerText = "Synchronized";
+        };
+        
+        ws.onclose = () => {
+            pillEl.innerText = "Connection Lost - Reconnecting...";
+            pillEl.className = "px-3 py-1 rounded-full text-xs bg-red-500/10 text-red-400 border border-red-500/20";
+            // Simple reconnect logic could go here
+        };
+    </script>
+</body>
+</html>

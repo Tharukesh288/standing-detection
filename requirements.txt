@@ -1,0 +1,6 @@
+ultralytics
+opencv-python
+deep-sort-realtime
+numpy
+pandas
+python-json-logger
