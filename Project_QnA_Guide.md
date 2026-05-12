@@ -1,77 +1,75 @@
-# Bus Standing Detection System - Complete Project Guide
+# Bus Standing Detection System - Comprehensive Architecture & Implementation Guide
 
-This document contains every technical detail about the project to help you prepare for presentations or Q&A sessions.
-
----
-
-## 1. Project Overview
-**What is it?**  
-A real-time AI-powered system designed to monitor passenger flow inside a bus. It uses a camera feed to detect people, determine whether they are standing or sitting, and automatically alert authorities (via Telegram) if the bus is overcrowded.
-
-**Why was it built?**  
-To prevent dangerous overcrowding in public transport, automate capacity monitoring, and provide a dashboard for real-time traffic analysis.
+This document is the absolute source of truth for the project. It contains every single technical detail, file structure breakdown, algorithm logic, and implementation choice made during the development of this system.
 
 ---
 
-## 2. Core Technologies & Libraries Used
+## 1. System Architecture & High-Level Overview
+**Objective**: To automatically monitor a bus environment, differentiate between standing and sitting passengers, visualize this data in real-time on a web dashboard, log events to a database, and send instant Telegram alerts when overcrowding thresholds are breached.
 
-### Backend (Python)
-- **Flask (`flask`)**: The web framework used to serve the backend API and host the frontend dashboard.
-- **Flask-SocketIO (`flask_socketio`)**: Enables real-time, two-way communication between the backend and the frontend browser. This is what allows the dashboard numbers to update instantly without refreshing the page.
-- **OpenCV (`cv2`)**: Used for capturing video frames from the laptop camera, processing the images, and drawing the bounding boxes/skeletons on the screen.
-- **Ultralytics YOLO (`ultralytics`)**: The core AI library. We use the `yolov8n.pt` (YOLOv8 Nano) model because it is incredibly fast and lightweight, allowing real-time object detection and pose estimation on a standard laptop CPU.
-- **SQLite (`sqlite3`)**: A lightweight database used to log every time an overcrowding event happens.
-- **Requests (`requests`)**: Used to send HTTP POST requests to the Telegram API to trigger the mobile alerts.
-- **Subprocess**: Built-in Python library used to automatically start the `ngrok` tunnel in the background.
-
-### Frontend (HTML, CSS, JavaScript)
-- **Vanilla JS & HTML/CSS**: No heavy frontend frameworks were used, ensuring fast load times.
-- **Chart.js**: A JavaScript charting library used to render the live "Standing vs. Sitting" graph on the dashboard.
-
-### Networking
-- **Ngrok**: A secure tunneling tool that takes the local Flask server (running on port 5000) and exposes it to the internet via a public HTTPS link.
+**Architecture Paradigm**: Client-Server Model with Asynchronous Processing.
+- **Frontend**: Vanilla HTML/CSS/JS (Lightweight, no compile step).
+- **Backend API**: Flask (Serves the dashboard and REST API).
+- **Real-time Pipeline**: Flask-SocketIO (WebSockets) for pushing continuous data without client polling.
+- **AI Processing**: OpenCV (Hardware interfacing) + Ultralytics YOLOv8 (Inference).
+- **External Services**: Ngrok (Tunneling for WAN access), Telegram API (Notifications).
 
 ---
 
-## 3. How the AI Detection Works (The Logic)
+## 2. File Structure & Component Breakdown
 
-If someone asks: *"How does the AI know if someone is standing or sitting?"*
+### `/backend/app.py` (The Core Controller)
+This is the heart of the system. It is heavily multi-threaded to prevent blocking operations.
+*   **Database Initialization (`init_db`)**: On startup, it connects to SQLite (`bus_data.db`) and creates the `crowd_events` table if it doesn't exist. The table schema contains: `id` (Primary Key), `timestamp` (DATETIME), `standing_count` (INTEGER), and `is_manual` (BOOLEAN).
+*   **Flask & SocketIO Setup**: Initializes a Flask app that serves the static files from the `../frontend` folder. `SocketIO` is wrapped around the Flask app with `cors_allowed_origins="*"` to allow cross-origin WebSocket connections.
+*   **The `CameraReader` Class (Lag Mitigation)**: 
+    *   *The Problem*: Standard `cv2.VideoCapture.read()` processes frames sequentially. Because YOLO takes ~50ms+ to process a frame, camera frames build up in the buffer, causing the video feed to lag seconds behind reality.
+    *   *The Solution*: `CameraReader` spins up a dedicated `daemon=True` thread. This thread runs an infinite `while` loop that *only* reads from the camera and stores the result in `self.latest_frame`, overwriting the old frame. It uses a `threading.Lock()` to prevent memory corruption when the main thread reads the frame. This guarantees 0 seconds of delay.
+*   **The `process_camera` Loop**: This thread pulls `cam_reader.read()`, passes it to `detector.process_frame()`, and updates the global `current_standing` and `current_sitting` variables. It then emits a `count_update` event over WebSocket to all connected browser clients.
+*   **Telegram Alerting (`send_telegram_alert`)**: If `standing > limit`, it triggers an alert. To prevent spamming the API, it implements a cooldown (checked via `time.time() - last_alert_time`). The alert function is spawned in a *new thread* (`threading.Thread(target=send_telegram_alert)`) so the HTTP request doesn't freeze the camera feed.
+*   **Auto-Ngrok Script**: On startup, `app.py` spawns a thread that uses Python's `subprocess` library to silently run `ngrok http 5000`, waits 3 seconds, polls the local Ngrok API (`http://127.0.0.1:4040/api/tunnels`), extracts the public HTTPS URL, and prints it to the terminal.
 
-1. **Frame Capture**: A custom "Fast-Reader" thread continuously pulls the absolute latest frame from the camera buffer. This prevents the video from lagging behind.
-2. **YOLO Detection**: The YOLO model scans the frame specifically for `Class 0` (which is the "Person" class). 
-3. **Pose Estimation**: The model returns "keypoints" (the human skeleton). 
-4. **The Math (Algorithm)**:
-   - The code looks specifically at the **Hips** (keypoints 11 & 12) and the **Knees** (keypoints 13 & 14).
-   - If the vertical distance (Y-axis difference) between the hip and the knee is greater than 15% of the person's total height, they are classified as **Standing** (because their leg is straight).
-   - If the distance is small, it means the hip and knee are horizontally aligned, classifying them as **Sitting**.
-5. **Fallback System**: If the hips/knees are blocked by an object, the system falls back to calculating the Aspect Ratio of the bounding box. If the box is much taller than it is wide (Height / Width > 1.4), the person is considered standing.
+### `/backend/detector.py` (The AI Engine)
+*   **Initialization**: Loads `config.yaml` to set thresholds and instantiates the YOLO model using `self.model = YOLO('yolov8n.pt')`.
+*   **Inference**: Calls `self.model(frame, stream=True, classes=[0], conf=self.conf_thresh)`. `classes=[0]` forces the model to ignore cars, animals, etc., and *only* detect humans (Class 0 in the COCO dataset).
+*   **The Posture Algorithm**:
+    1.  The model outputs bounding boxes (`xyxy`) and Keypoints (the 17 points of the human skeleton).
+    2.  The code specifically extracts: Left Hip (11), Right Hip (12), Left Knee (13), and Right Knee (14).
+    3.  It checks the confidence score of these joints (`> 0.5`).
+    4.  **Math**: It calculates the vertical distance between the hip and the knee (`knee_y - hip_y`).
+    5.  **Logic**: If a person is sitting, their femur is horizontal, meaning their knee and hip have almost the same Y-coordinate. If they are standing, their leg is straight, meaning the knee is physically far below the hip.
+    6.  **Threshold**: If `vertical_dist > (0.15 * bounding_box_height)`, the person is classified as "Standing".
+    7.  **Fallback Mechanism**: If the camera can only see the upper body (keypoints missing), the system falls back to a mathematical Aspect Ratio check. If `(Height / Width) > 1.4`, the person is standing.
+*   **Annotation**: Uses `cv2.rectangle`, `cv2.putText`, and `cv2.circle` to draw colored boxes (Nord Green for Standing, Nord Red for Sitting) and plot the skeleton joints directly onto the numpy array frame.
+
+### `/backend/config.yaml` (The Settings File)
+Separating configuration from code prevents hardcoding. It contains:
+*   `alerts.max_standing_limit`: The integer threshold that triggers an overcrowded state (default: 5).
+*   `alerts.cooldown_seconds`: Prevents API spam by enforcing a wait time between messages.
+*   `camera.device_id`: The hardware index for the webcam (usually `0`).
+*   `camera.use_stream`: Boolean flag allowing the system to easily swap to an external IP camera (like an ESP32-CAM) in the future.
+*   `detection.model_path`: Set to `yolov8n.pt`. Nano is chosen specifically because its parameter size allows 15-30 FPS on standard CPUs.
+
+### `/frontend/script.js` (The Client Controller)
+*   **Dynamic URL Parsing**: Uses `window.location.origin` to automatically figure out if the user is accessing via localhost or Ngrok, ensuring WebSocket connections never fail due to CORS.
+*   **WebSocket Receiver**: Listens for the `count_update` event. When received, it instantly updates the DOM elements.
+*   **Chart.js Integration**: Maintains a rolling historical array of `MAX_DATA_POINTS = 30`. Every time a WebSocket packet arrives, it pushes the new standing/sitting integers into the Chart datasets, shifting out the oldest data point to create a continuous scrolling effect. Animations are disabled (`duration: 0`) in the chart config to prevent rendering lag.
+*   **Database Polling**: Runs a `setInterval` every 5 seconds to hit the `/api/stats` REST endpoint, updating the "Total Events Today" and "Peak Standing" UI components.
 
 ---
 
-## 4. The Workflow Pipeline
-
-If someone asks: *"Trace the data from the camera to the user's phone."*
-
-1. The **Laptop Camera** captures a frame.
-2. **OpenCV** passes the frame to **YOLOv8**.
-3. YOLO analyzes the posture and counts the totals.
-4. The backend sends the total counts via **WebSocket (SocketIO)** directly to the browser dashboard to update the live chart.
-5. If `Standing People > Allowed Limit`, the system checks the "cooldown timer" (to prevent spam).
-6. The backend logs the event in the **SQLite Database** (`bus_data.db`).
-7. The backend uses the `requests` library to send a message to the **Telegram Bot API**, which immediately pings the admin's phone.
+## 3. Exhaustive Dependency Details
+- **Python Version**: 3.8+
+- `ultralytics`: The official YOLO library package. Automatically downloads the PyTorch backend.
+- `opencv-python`: Provides the `cv2` bindings for camera capture and image matrix manipulation.
+- `flask` & `Flask-SocketIO`: Handles WSGI routing and WebSocket protocol upgrades.
+- `PyYAML`: Parses the `config.yaml` file into Python dictionaries.
+- `requests`: Standard library for making external HTTP calls (Telegram API & Ngrok API).
 
 ---
 
-## 5. Potential Interview Questions & Answers
-
-**Q: Why use YOLOv8 Nano instead of YOLOv8 Small or Large?**
-*Answer*: Real-time video processing requires high FPS (Frames Per Second). Larger models are more accurate but process very slowly on standard laptop CPUs, causing heavy lag. YOLOv8 Nano strikes the perfect balance between accurate human detection and high-speed processing.
-
-**Q: What happens if the internet goes down?**
-*Answer*: The core detection system, camera feed, and local dashboard (on localhost) will continue to work perfectly because all processing happens locally on the laptop. However, the Ngrok public URL and Telegram alerts will temporarily fail until the connection is restored.
-
-**Q: How do you prevent the system from sending 100 Telegram alerts a second when the bus is full?**
-*Answer*: We implemented a `cooldown_seconds` variable in `config.yaml` (defaulted to 60 seconds). Once an alert is sent, the system records the timestamp and will block any further alerts until the 60 seconds have passed.
-
-**Q: How did you fix the camera delay/lag issue?**
-*Answer*: Originally, OpenCV's default buffer would queue up frames faster than the AI could process them, causing the video to fall seconds behind reality. We fixed this by implementing a dedicated background threading class (`CameraReader`). This thread constantly empties the OpenCV buffer so that the AI loop only ever processes the absolute most recent frame, dropping the intermediate ones.
+## 4. Why This Architecture was Chosen (Design Decisions)
+1. **Why SQLite?** We do not need a massive distributed database like PostgreSQL. SQLite writes directly to a `.db` file on the hard drive, requires zero configuration, and easily handles the write speed of a single application.
+2. **Why Flask-SocketIO over REST Polling?** If the frontend requested data every second via AJAX, it would create massive HTTP overhead. WebSockets keep a single persistent TCP connection open, allowing the server to push numbers with near-zero latency.
+3. **Why YOLOv8 Nano?** Accuracy vs. Speed tradeoff. `yolov8s` or `yolov8m` provides slightly better bounding boxes, but drops the frame rate significantly on non-GPU machines. Nano provides the mathematically optimal balance for live CCTV processing.
+4. **Why serve Frontend through Flask?** Originally, the HTML was opened as a raw file. Serving it through Flask means the entire application (HTML, APIs, Video Feed, WebSockets) runs on a single port (5000). This is what allows Ngrok to expose the *entire* application securely over a single URL without cross-origin resource sharing (CORS) errors.
