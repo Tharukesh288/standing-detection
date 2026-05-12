@@ -1,0 +1,16 @@
+alerts:
+  cooldown_seconds: 60
+  max_standing_limit: 5
+  telegram_bot_token: 8206916208:AAGY7CBZxA0W3P_837nnLbdCnU2S-1_cFBs
+  telegram_chat_id: '7911049101'
+  telegram_enabled: true
+camera:
+  device_id: 0
+  height: 480
+  stream_url: http://10.36.180.55:81/stream
+  use_stream: false
+  width: 640
+detection:
+  aspect_ratio_threshold: 1.4
+  confidence_threshold: 0.6
+  model_path: yolov8s.pt

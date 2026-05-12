@@ -1,0 +1,40 @@
+# ESP32-CAM Setup Procedure
+
+To connect your project with the ESP32-CAM module, follow these steps:
+
+### 1. Update WiFi Credentials
+In your `esp32_cam_stream/esp32_cam_stream.ino` file, you need to replace the placeholder WiFi credentials with your actual network details:
+```cpp
+const char* ssid = "YOUR_WIFI_SSID_HERE";       // Replace with your actual WiFi name
+const char* password = "YOUR_WIFI_PASSWORD_HERE"; // Replace with your actual WiFi password
+```
+
+### 2. Upload the Firmware
+1. Connect your ESP32-CAM to your computer (usually via an FTDI programmer since most ESP32-CAMs don't have a built-in USB port).
+2. Make sure you have the correct board selected in your Arduino IDE (e.g., "AI Thinker ESP32-CAM").
+3. Compile and upload the `esp32_cam_stream.ino` sketch to the board.
+
+### 3. Get the ESP32 IP Address
+1. Once uploaded, open the **Serial Monitor** in your Arduino IDE.
+2. Set the baud rate to **115200**.
+3. Press the reset button on your ESP32-CAM.
+4. Wait for it to connect to your WiFi. The serial monitor will output something like:
+   ```
+   WiFi connected
+   Starting stream server on port: '81'
+   Camera Stream Ready! Use this URL in your config.yaml:
+   http://192.168.31.224:81/stream
+   ```
+5. Note this IP address.
+
+### 4. Update the Backend Configuration
+Update your `backend/config.yaml` file to point to the new camera stream. Ensure the `stream_url` is formatted with the `:81/stream` path at the end.
+
+```yaml
+camera:
+  device_id: 0
+  stream_url: "http://192.168.31.224:81/stream"  # Make sure to include :81/stream
+  use_stream: true 
+```
+
+**Important:** Ensure both the ESP32-CAM and the computer running your Python backend are connected to the exact same WiFi network, otherwise, they won't be able to communicate.

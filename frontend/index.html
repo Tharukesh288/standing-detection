@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Passenger Detection System</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Passenger Flow</h1>
+            <div class="header-controls">
+                <button id="switch-cam-btn" class="manual-btn">Switch Camera</button>
+                <button id="manual-trigger-btn" class="manual-btn">Trigger Alert</button>
+                <div class="status disconnected" id="connection-status">Disconnected</div>
+            </div>
+        </header>
+
+        <div id="overcrowded-banner" class="alert-banner hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <span>Crowd Limit Exceeded! More than 5 standing passengers detected.</span>
+        </div>
+        
+        <main>
+            <div class="stats-container">
+                <div class="stat-card standing">
+                    <h2>Standing</h2>
+                    <div class="count" id="standing-count">0</div>
+                </div>
+                <div class="stat-card sitting">
+                    <h2>Sitting</h2>
+                    <div class="count" id="sitting-count">0</div>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>Live History</h2>
+                <div class="canvas-wrapper">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="insights-container">
+                <h2>Database Insights</h2>
+                <div class="stats-grid">
+                    <div class="insight-card">
+                        <h3>Crowded Events Today</h3>
+                        <div class="insight-value" id="today-events">0</div>
+                    </div>
+                    <div class="insight-card">
+                        <h3>All-Time Peak</h3>
+                        <div class="insight-value" id="peak-standing">0</div>
+                    </div>
+                    <div class="insight-card">
+                        <h3>Last Event</h3>
+                        <div class="insight-value text-sm" id="last-event">Never</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="video-container">
+                <div class="video-header">
+                    <h2>Real-time Feed</h2>
+                    <div class="live-indicator">
+                        <div class="pulse"></div>
+                        LIVE
+                    </div>
+                </div>
+                <img id="video-feed" src="http://localhost:5000/video_feed" alt="Video Feed Offline" onerror="this.src=''; this.alt='Video feed currently offline'">
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
