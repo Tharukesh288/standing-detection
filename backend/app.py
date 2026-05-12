@@ -2,8 +2,9 @@ import cv2
 import threading
 import time
 import requests
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, render_template, Response, jsonify, send_from_directory
 from flask_socketio import SocketIO
+import os
 from detector import StandingDetector
 import yaml
 import sqlite3
@@ -37,8 +38,19 @@ def log_crowd_event(standing, is_manual):
     except Exception as e:
         print(f"DB Error: {e}")
 
-app = Flask(__name__)
+# Path to the frontend folder
+frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
+
+app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+@app.route('/')
+def index():
+    return send_from_directory(frontend_dir, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory(frontend_dir, path)
 
 with open('config.yaml', 'r') as f:
     config = yaml.safe_load(f)

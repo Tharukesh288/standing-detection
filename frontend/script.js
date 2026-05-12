@@ -4,8 +4,8 @@ const statusBadge = document.getElementById('connection-status');
 const videoFeed = document.getElementById('video-feed');
 const overcrowdedBanner = document.getElementById('overcrowded-banner');
 
-// Set video feed URL
-const BACKEND_URL = 'http://localhost:5000';
+// Set video feed URL dynamically
+const BACKEND_URL = window.location.origin;
 videoFeed.src = `${BACKEND_URL}/video_feed`;
 
 // Connect to WebSocket
