@@ -5,6 +5,7 @@ import requests
 from flask import Flask, render_template, Response, jsonify, send_from_directory
 from flask_socketio import SocketIO
 import os
+import subprocess
 from detector import StandingDetector
 import yaml
 import sqlite3
@@ -239,7 +240,33 @@ def generate_frames():
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+def start_ngrok():
+    try:
+        # Kill any existing ngrok processes
+        subprocess.run(['killall', 'ngrok'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1)
+        # Start ngrok in the background
+        subprocess.Popen(['ngrok', 'http', '5000'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(3) # Wait for it to initialize
+        
+        # Fetch the public URL
+        response = requests.get('http://127.0.0.1:4040/api/tunnels', timeout=2)
+        public_url = response.json()['tunnels'][0]['public_url']
+        print("\n" + "="*60)
+        print(f"🚀 YOUR LIVE ONLINE URL: {public_url}")
+        print("="*60 + "\n")
+    except Exception as e:
+        print("\n" + "="*60)
+        print(f"⚠️  Could not start Ngrok automatically. ({e})")
+        print("You can manually run 'ngrok http 5000' in a new terminal.")
+        print("="*60 + "\n")
+
 if __name__ == '__main__':
     camera_thread = threading.Thread(target=process_camera, daemon=True)
     camera_thread.start()
+    
+    # Start ngrok and print the URL before the server blocks the terminal
+    ngrok_thread = threading.Thread(target=start_ngrok, daemon=True)
+    ngrok_thread.start()
+    
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
