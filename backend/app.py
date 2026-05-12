@@ -61,9 +61,38 @@ if config['camera'].get('use_stream', False) and config['camera'].get('stream_ur
 else:
     camera_source = config['camera']['device_id']
 
-cap = cv2.VideoCapture(camera_source)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, config['camera'].get('width', 640))
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config['camera'].get('height', 480))
+class CameraReader:
+    def __init__(self, src):
+        self.cap = cv2.VideoCapture(src)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config['camera'].get('width', 640))
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config['camera'].get('height', 480))
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.latest_frame = None
+        self.lock = threading.Lock()
+        self.running = True
+        self.thread = threading.Thread(target=self._read_loop, daemon=True)
+        self.thread.start()
+
+    def _read_loop(self):
+        while self.running:
+            success, frame = self.cap.read()
+            if success:
+                with self.lock:
+                    self.latest_frame = frame
+            else:
+                time.sleep(0.01)
+
+    def read(self):
+        with self.lock:
+            if self.latest_frame is not None:
+                return True, self.latest_frame.copy()
+            return False, None
+
+    def release(self):
+        self.running = False
+        self.cap.release()
+
+cam_reader = CameraReader(camera_source)
 
 detector = StandingDetector('config.yaml')
 
@@ -115,9 +144,9 @@ def process_camera():
     while True:
         try:
             with cap_lock:
-                success, frame = cap.read()
+                success, frame = cam_reader.read()
             if not success:
-                time.sleep(0.1)
+                time.sleep(0.05)
                 continue
                 
             processed_frame, standing, sitting = detector.process_frame(frame)
@@ -165,15 +194,13 @@ def switch_camera():
         yaml.dump(config, f, default_flow_style=False)
         
     with cap_lock:
-        cap.release()
+        cam_reader.release()
         if new_use_stream and config['camera'].get('stream_url'):
             camera_source = config['camera']['stream_url']
         else:
             camera_source = config['camera']['device_id']
             
-        cap = cv2.VideoCapture(camera_source)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, config['camera'].get('width', 640))
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config['camera'].get('height', 480))
+        cam_reader = CameraReader(camera_source)
         
     return jsonify({'use_stream': new_use_stream, 'source': camera_source})
 

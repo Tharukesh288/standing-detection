@@ -13,4 +13,4 @@ camera:
 detection:
   aspect_ratio_threshold: 1.4
   confidence_threshold: 0.6
-  model_path: yolov8s.pt
+  model_path: yolov8n.pt

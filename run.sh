@@ -1,24 +1,51 @@
 #!/bin/bash
-echo "Starting Passenger Flow Backend..."
 
-# Navigate to the directory where this script is located
-cd "$(dirname "$0")"
+# Standing Detection System - Startup Script
 
-if [ ! -d "venv" ]; then
-    echo "Virtual environment not found! Please run scripts/setup.sh first to install everything."
+echo "=========================================="
+echo "  Bus Standing Detection System"
+echo "=========================================="
+echo ""
+
+# Check if Python 3 is installed
+if ! command -v python3 &> /dev/null; then
+    echo "Error: Python 3 is not installed"
     exit 1
 fi
 
-source venv/bin/activate
+echo "Python version: $(python3 --version)"
+echo ""
 
-echo "Opening User Dashboard..."
-if command -v xdg-open &> /dev/null; then
-    # Runs the browser in the background
-    xdg-open "$(pwd)/frontend/index.html" &
-else
-    # Fallback to python webbrowser if xdg-open isn't available
-    python3 -c "import webbrowser, os; webbrowser.open('file://' + os.path.realpath('frontend/index.html'))" &
+# Navigate to backend directory
+cd "$(dirname "$0")/backend" || exit 1
+
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
 fi
 
-cd backend
+# Activate virtual environment
+source venv/bin/activate
+
+# Install dependencies
+echo "Installing dependencies..."
+pip install -r requirements.txt -q
+
+# Download YOLO model if not exists
+echo "Checking YOLO model..."
+python3 -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" 2>/dev/null
+
+echo ""
+echo "=========================================="
+echo "  Starting Detection System..."
+echo "=========================================="
+echo ""
+echo "Dashboard URL: http://localhost:5000"
+echo "Dashboard URL: http://$(hostname -I | awk '{print $1}'):5000"
+echo ""
+echo "Press Ctrl+C to stop"
+echo ""
+
+# Run the application
 python3 app.py
