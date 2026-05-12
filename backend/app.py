@@ -185,7 +185,7 @@ def get_count():
 
 @app.route('/api/switch_camera', methods=['POST'])
 def switch_camera():
-    global cap, camera_source, config
+    global cam_reader, camera_source, config
     
     new_use_stream = not config['camera'].get('use_stream', False)
     config['camera']['use_stream'] = new_use_stream
